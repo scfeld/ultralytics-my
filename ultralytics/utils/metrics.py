@@ -146,6 +146,70 @@ def bbox_iou(
         return iou - (c_area - union) / c_area  # GIoU https://arxiv.org/pdf/1902.09630.pdf
     return iou  # IoU
 
+def mpdiou(
+    box1: torch.Tensor,
+    box2: torch.Tensor,
+    xywh: bool = False,
+    eps: float = 1e-7,
+) -> torch.Tensor:
+    if xywh:
+        (x1, y1, w1, h1), (x2, y2, w2, h2) = box1.chunk(4, -1), box2.chunk(4, -1)
+        w1_, h1_, w2_, h2_ = w1 / 2, h1 / 2, w2 / 2, h2 / 2
+        b1_x1, b1_x2, b1_y1, b1_y2 = x1 - w1_, x1 + w1_, y1 - h1_, y1 + h1_
+        b2_x1, b2_x2, b2_y1, b2_y2 = x2 - w2_, x2 + w2_, y2 - h2_, y2 + h2_
+        w1, h1 = w1, h1
+        w2, h2 = w2, h2
+    else:
+        b1_x1, b1_y1, b1_x2, b1_y2 = box1.chunk(4, -1)
+        b2_x1, b2_y1, b2_x2, b2_y2 = box2.chunk(4, -1)
+        w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1 + eps
+        w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1 + eps
+    inter = (b1_x2.minimum(b2_x2) - b1_x1.maximum(b2_x1)).clamp_(0) * (
+        b1_y2.minimum(b2_y2) - b1_y1.maximum(b2_y1)
+    ).clamp_(0)
+    union = w1 * h1 + w2 * h2 - inter + eps
+    iou = inter / union
+    cw = b1_x2.maximum(b2_x2) - b1_x1.minimum(b2_x1)
+    ch = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)
+    c2 = cw.pow(2) + ch.pow(2) + eps
+    d_tl = ((b1_x1 - b2_x1).pow(2) + (b1_y1 - b2_y1).pow(2)).sqrt()
+    d_tr = ((b1_x2 - b2_x2).pow(2) + (b1_y1 - b2_y1).pow(2)).sqrt()
+    d_bl = ((b1_x1 - b2_x1).pow(2) + (b1_y2 - b2_y2).pow(2)).sqrt()
+    d_br = ((b1_x2 - b2_x2).pow(2) + (b1_y2 - b2_y2).pow(2)).sqrt()
+    penalty = (d_tl + d_tr + d_bl + d_br) / (4 * c2.sqrt() + eps)
+    return iou - penalty
+
+def nwd_loss(
+    box1: torch.Tensor,
+    box2: torch.Tensor,
+    imgsz: torch.Tensor,
+    xywh: bool = False,
+    eps: float = 1e-7,
+    sigma: float = 1.0,
+) -> torch.Tensor:
+    if xywh:
+        cx1, cy1, w1, h1 = box1.chunk(4, -1)
+        cx2, cy2, w2, h2 = box2.chunk(4, -1)
+    else:
+        x1_1, y1_1, x1_2, y1_2 = box1.chunk(4, -1)
+        x2_1, y2_1, x2_2, y2_2 = box2.chunk(4, -1)
+        cx1 = (x1_1 + x1_2) / 2
+        cy1 = (y1_1 + y1_2) / 2
+        w1 = (x1_2 - x1_1).clamp_min(eps)
+        h1 = (y1_2 - y1_1).clamp_min(eps)
+        cx2 = (x2_1 + x2_2) / 2
+        cy2 = (y2_1 + y2_2) / 2
+        w2 = (x2_2 - x2_1).clamp_min(eps)
+        h2 = (y2_2 - y2_1).clamp_min(eps)
+    diag2 = imgsz[0].pow(2) + imgsz[1].pow(2) + eps
+    d2 = (
+        (cx1 - cx2).pow(2)
+        + (cy1 - cy2).pow(2)
+        + (w1 - w2).pow(2)
+        + (h1 - h2).pow(2)
+    ) / diag2
+    return 1.0 - torch.exp(-d2 / (2 * (sigma**2) + eps))
+
 
 def mask_iou(mask1: torch.Tensor, mask2: torch.Tensor, eps: float = 1e-7) -> torch.Tensor:
     """Calculate masks IoU.
