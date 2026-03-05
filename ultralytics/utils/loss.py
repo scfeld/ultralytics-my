@@ -130,7 +130,9 @@ class BboxLoss(nn.Module):
         weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
         iou = mpdiou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False)
         nwd = nwd_loss(pred_bboxes[fg_mask], target_bboxes[fg_mask], imgsz)
-        loss_iou = ((1.0 - iou + nwd) * weight).sum() / target_scores_sum
+        alpha = 0.5
+        #   解释
+        loss_iou = ((alpha * iou + (1.0 - alpha) * nwd) * weight).sum() / target_scores_sum
 
         # DFL loss
         if self.dfl_loss:
