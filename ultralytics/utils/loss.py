@@ -109,10 +109,11 @@ class DFLoss(nn.Module):
 class BboxLoss(nn.Module):
     """Criterion class for computing training losses for bounding boxes."""
 
-    def __init__(self, reg_max: int = 16):
+    def __init__(self, reg_max: int = 16, hyp: Any | None = None):
         """Initialize the BboxLoss module with regularization maximum and DFL settings."""
         super().__init__()
         self.dfl_loss = DFLoss(reg_max) if reg_max > 1 else None
+        self.hyp = hyp
 
     def forward(
         self,
@@ -130,8 +131,8 @@ class BboxLoss(nn.Module):
         weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
         iou = mpdiou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False)
         nwd = nwd_loss(pred_bboxes[fg_mask], target_bboxes[fg_mask], imgsz)
-        alpha = 0.5
-        #   解释
+        alpha = getattr(self.hyp, "mpdiou_alpha", 0.5) if getattr(self, "hyp", None) is not None else 0.5
+        #   Loss = α × MPDIoU + (1 − α) × NWD
         loss_iou = ((alpha * iou + (1.0 - alpha) * nwd) * weight).sum() / target_scores_sum
 
         # DFL loss
@@ -213,9 +214,9 @@ class RLELoss(nn.Module):
 class RotatedBboxLoss(BboxLoss):
     """Criterion class for computing training losses for rotated bounding boxes."""
 
-    def __init__(self, reg_max: int):
+    def __init__(self, reg_max: int, hyp: Any | None = None):
         """Initialize the RotatedBboxLoss module with regularization maximum and DFL settings."""
-        super().__init__(reg_max)
+        super().__init__(reg_max, hyp)
 
     def forward(
         self,
@@ -360,7 +361,7 @@ class v8DetectionLoss:
             stride=self.stride.tolist(),
             topk2=tal_topk2,
         )
-        self.bbox_loss = BboxLoss(m.reg_max).to(device)
+        self.bbox_loss = BboxLoss(m.reg_max, h).to(device)
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
 
     def preprocess(self, targets: torch.Tensor, batch_size: int, scale_tensor: torch.Tensor) -> torch.Tensor:
@@ -977,7 +978,7 @@ class v8OBBLoss(v8DetectionLoss):
             stride=self.stride.tolist(),
             topk2=tal_topk2,
         )
-        self.bbox_loss = RotatedBboxLoss(self.reg_max).to(self.device)
+        self.bbox_loss = RotatedBboxLoss(self.reg_max, self.hyp).to(self.device)
 
     def preprocess(self, targets: torch.Tensor, batch_size: int, scale_tensor: torch.Tensor) -> torch.Tensor:
         """Preprocess targets for oriented bounding box detection."""

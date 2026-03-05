@@ -17,4 +17,5 @@ if __name__ == '__main__':
                           workers=0,
                           project='runs/RT-DETR/train',
                           name='exp',
+                          mpdiou_alpha=0.7
                           )

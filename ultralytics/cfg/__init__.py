@@ -185,6 +185,7 @@ CFG_FRACTION_KEYS = frozenset(
         "copy_paste",
         "conf",
         "iou",
+        "mpdiou_alpha",
         "fraction",
         "multi_scale",
     }
